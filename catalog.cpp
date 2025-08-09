@@ -15,86 +15,89 @@ long long decodeValue(const string& val, int base) {
     return res;
 }
 
-// Gaussian elimination solving A*x=0 (non-trivial solution)
-// To get unique solution, fix c=1 and solve for a,b, then scale final
-// or solve for a,b,c by setting last eq to c=1 to avoid trivial zero solution
-// Here we will solve homogeneous system by fixing c=1 (to avoid trivial solution)
+// Solve least squares for A*x= -C with c=1 fixed, returns a,b
 pair<double,double> solveForAandB(const vector<vector<double>>& A, const vector<double>& C) {
-    // A is n x 2 matrix (columns: a, b)
-    // C is -c column (because we set c=1)
     int n = A.size();
     vector<vector<double>> mat(n, vector<double>(2));
     vector<double> rhs(n);
-    for (int i=0; i<n; i++){
+    for (int i = 0; i < n; i++) {
         mat[i][0] = A[i][0]; // coefficient of a (x^2)
         mat[i][1] = A[i][1]; // coefficient of b (y)
-        rhs[i] = -C[i];      // -c, here c=1, so rhs = -1
+        rhs[i] = -C[i];      // -c, c=1 here
     }
 
-    // Solve using least squares (normal eq) since n >= 3 usually
-    // (mat^T * mat) * x = mat^T * rhs
-    vector<vector<double>> ATA(2, vector<double>(2,0));
-    vector<double> ATb(2,0);
-    for(int i=0; i<n; i++){
-        ATA[0][0] += mat[i][0]*mat[i][0];
-        ATA[0][1] += mat[i][0]*mat[i][1];
-        ATA[1][0] += mat[i][1]*mat[i][0];
-        ATA[1][1] += mat[i][1]*mat[i][1];
+    // Compute ATA and ATb
+    vector<vector<double>> ATA(2, vector<double>(2, 0));
+    vector<double> ATb(2, 0);
+    for (int i = 0; i < n; i++) {
+        ATA[0][0] += mat[i][0] * mat[i][0];
+        ATA[0][1] += mat[i][0] * mat[i][1];
+        ATA[1][0] += mat[i][1] * mat[i][0];
+        ATA[1][1] += mat[i][1] * mat[i][1];
 
-        ATb[0] += mat[i][0]*rhs[i];
-        ATb[1] += mat[i][1]*rhs[i];
+        ATb[0] += mat[i][0] * rhs[i];
+        ATb[1] += mat[i][1] * rhs[i];
     }
 
-    double det = ATA[0][0]*ATA[1][1] - ATA[0][1]*ATA[1][0];
-    if (fabs(det) < 1e-12) return {0,0}; // singular matrix
+    double det = ATA[0][0] * ATA[1][1] - ATA[0][1] * ATA[1][0];
+    if (fabs(det) < 1e-12) return {0, 0}; // singular matrix fallback
 
-    double a = (ATb[0]*ATA[1][1] - ATb[1]*ATA[0][1])/det;
-    double b = (ATA[0][0]*ATb[1] - ATA[1][0]*ATb[0])/det;
-    return {a,b};
+    double a = (ATb[0] * ATA[1][1] - ATb[1] * ATA[0][1]) / det;
+    double b = (ATA[0][0] * ATb[1] - ATA[1][0] * ATb[0]) / det;
+
+    return {a, b};
 }
 
-int main(){
+// Process one test case JSON object
+void processTestCase(const json& test) {
+    int n = test["keys"]["n"];
+    int k = test["keys"]["k"];
+
+    vector<vector<double>> A; // rows: [x^2, y]
+    vector<double> C;         // constant term vector (all 1)
+
+    for (auto& item : test.items()) {
+        if (item.key() == "keys") continue;
+
+        double x = stod(item.key());
+        int base = stoi(item.value()["base"].get<string>());
+        string val = item.value()["value"];
+        double y = decodeValue(val, base);
+
+        A.push_back({x * x, y});
+        C.push_back(1); // fixed c = 1
+    }
+
+    if (k > (int)A.size()) k = (int)A.size();
+    A.resize(k);
+    C.resize(k);
+
+    auto [a, b] = solveForAandB(A, C);
+
+    cout << fixed << setprecision(6);
+    cout << "a = " << a << ", b = " << b << ", c = 1\n\n";
+}
+
+int main() {
     ifstream fin("input.json");
-    if(!fin){
+    if (!fin) {
         cerr << "Cannot open input.json\n";
         return 1;
     }
+
     json j;
     fin >> j;
 
-    // If multiple test cases wrapped in array, iterate:
-    if(j.is_array()){
-        for(auto& test : j){
-            int n = test["keys"]["n"];
-            int k = test["keys"]["k"];
-
-            vector<vector<double>> A; // [x^2, y]
-            vector<double> C;         // for constant term = c
-
-            for(auto& item : test.items()){
-                if(item.key() == "keys") continue;
-                double x = stod(item.key());
-                int base = stoi(item.value()["base"].get<string>());
-                string val = item.value()["value"];
-                double y = decodeValue(val, base);
-
-                A.push_back({x*x, y});
-                C.push_back(1); // we fix c=1 for unique solution
-            }
-
-            // Use only first k points
-            A.resize(k);
-            C.resize(k);
-
-            auto [a,b] = solveForAandB(A,C);
-
-            cout << fixed << setprecision(6);
-            cout << "a = " << a << ", b = " << b << ", c = 1\n\n";
+    if (j.is_array()) {
+        for (auto& test : j) {
+            processTestCase(test);
         }
-    }
-    else{
-        cerr << "Input JSON must be an array of test cases.\n";
+    } else if (j.is_object()) {
+        processTestCase(j);
+    } else {
+        cerr << "Input JSON must be an object or array of objects.\n";
         return 1;
     }
+
     return 0;
 }
